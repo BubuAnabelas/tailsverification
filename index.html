@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+
+	<input type="file" name="file1" id="file1" onchange="onFileChange()">
+	<p id="resultingHashFile"></p>
+	<script type="text/javascript" src="dist/bundle.js"></script>
+
+	<script type="text/javascript">
+		function onFileChange() {
+			const fileEl = document.getElementById('file1')
+			const resultEl = document.getElementById('resultingHashFile')
+			resultEl.innerText = 'Hashing...'
+			try {
+				fileEl.disabled = true
+
+				const sha256 = CryptoUtils.SHA256WASM(CryptoUtils.WasmSha256()).then(sha256 => {
+					const selectedFile = fileEl.files[0]
+					const stream = selectedFile.stream().getReader()
+
+					console.time('hashing')
+					let currentState = sha256.init()
+
+					stream.read().then(function calculateHash({done, value}) {
+						if (done) {
+							const hash = sha256.final(currentState)
+							console.timeEnd('hashing')
+							const resultingHash = CryptoUtils.binToHex(hash)
+							console.log(selectedFile.name, resultingHash)
+							resultEl.innerText = `${selectedFile.name} ${resultingHash}`
+							return
+						}
+
+						currentState = sha256.update(currentState, value)
+
+						return stream.read().then(calculateHash)
+					})
+				})
+			} catch (e) {
+				console.error(e);
+			} finally {
+				fileEl.disabled = false
+			}
+		}
+	</script>
+</body>
+</html>
