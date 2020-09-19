@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+
+	<input type="file" name="file1" id="file1" onchange="onFileChange()">
+	<p id="resultingHashFile"></p>
+	<script type="text/javascript" src="https://unpkg.com/jssha@3.1.2/dist/sha256.js"></script>
+
+	<script type="text/javascript">
+		async function onFileChange() {
+			const fileEl = document.getElementById('file1')
+			const resultEl = document.getElementById('resultingHashFile')
+			const CHUNK_SIZE = 2 * 1024 * 1024
+			resultEl.innerText = 'Hashing...'
+			try {
+				fileEl.disabled = true
+
+				const selectedFile = fileEl.files[0]
+				const stream = selectedFile.stream().getReader()
+
+				console.time('hashing')
+				const sha256 = new jsSHA("SHA-256", "UINT8ARRAY")
+				stream.read().then(function calculateHash({done, value}) {
+					if (done) {
+						const hash = sha256.getHash('HEX')
+						console.timeEnd('hashing')
+						console.log(selectedFile.name, hash)
+						resultEl.innerText = `${selectedFile.name} ${hash}`
+						return
+					}
+
+					sha256.update(value)
+
+					return stream.read().then(calculateHash)
+				})
+			} catch (e) {
+				console.error(e);
+			} finally {
+				fileEl.disabled = false
+			}
+		}
+	</script>
+</body>
+</html>
