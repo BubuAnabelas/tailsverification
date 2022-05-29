@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<script src="wasm_exec.js"></script>
+	<script>
+		const go = new Go();
+		console.log({go})
+		WebAssembly.instantiateStreaming(fetch("wasm_js.wasm"), go.importObject).then(async (result) => {
+			console.log({result})
+			mod = result.module;
+			inst = result.instance;
+			go.run(inst);
+			inst = await WebAssembly.instantiate(mod, go.importObject);
+		});
+	</script>
+</head>
+<body>
+
+<input type="file" name="file1" id="file1" onchange="onFileChange()">
+<p id="resultingHashFile"></p>
+
+<script type="text/javascript">
+	function onFileChange() {
+		const fileEl = document.getElementById('file1')
+		const resultEl = document.getElementById('resultingHashFile')
+		resultEl.innerText = 'Hashing...'
+		try {
+			fileEl.disabled = true
+
+			const selectedFile = fileEl.files[0]
+			const stream = selectedFile.stream().getReader()
+
+			console.time('hashing')
+			let currentState = initSHA256()
+
+			stream.read().then(function calculateHash({done, value}) {
+				if (done) {
+					const hash = digest(currentState)
+					console.timeEnd('hashing')
+					console.log(selectedFile.name, hash)
+					resultEl.innerText = `${selectedFile.name} ${hash}`
+					return
+				}
+
+				currentState = update(currentState, value)
+
+				return stream.read().then(calculateHash)
+			})
+
+		} catch (e) {
+			console.error(e);
+		} finally {
+			fileEl.disabled = false
+		}
+	}
+</script>
+</body>
+</html>
+
+
+
+
