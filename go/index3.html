@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("wasm_2_go_js.wasm"), go.importObject).then(async (result) => {
+            mod = result.module;
+            inst = result.instance;
+            go.run(inst);
+            inst = await WebAssembly.instantiate(mod, go.importObject);
+        });
+    </script>
+</head>
+<body>
+
+<input type="file" name="file1" id="file1" onchange="onFileChange()">
+<p id="resultingHashFile"></p>
+
+<script type="text/javascript">
+    function onFileChange() {
+        const fileEl = document.getElementById('file1')
+        const resultEl = document.getElementById('resultingHashFile')
+        resultEl.innerText = 'Hashing...'
+        try {
+            const hasher = new WritableStream({
+                write(chunk) {
+                    return new Promise((res, rej) => {
+                        update(chunk)
+                        res()
+                    })
+                },
+                close() {
+                    const hash = digest()
+                    console.timeEnd('hashing')
+                    console.log(selectedFile.name, hash)
+                    resultEl.innerText = `${selectedFile.name} ${hash}`
+                }
+            })
+
+            fileEl.disabled = true
+
+            const selectedFile = fileEl.files[0]
+            const stream = selectedFile.stream()
+
+            console.time('hashing')
+            initSHA256()
+            stream.pipeTo(hasher)
+
+        } catch (e) {
+            console.error(e);
+        } finally {
+            fileEl.disabled = false
+        }
+    }
+</script>
+</body>
+</html>
