@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SHA256 Hash with Zig WASM</title>
+</head>
+<body>
+    <h1>SHA256 File Hash Calculator (Zig WASM)</h1>
+    <input type="file" name="file1" id="file1" onchange="onFileChange()">
+    <p id="resultingHashFile"></p>
+
+    <script>
+        let wasmModule = null;
+        let memory = null;
+        let chunkBufferPtr = 0; // Will hold the safe address provided by WASM
+
+        // Initialize WASM module
+        async function initWasm() {
+            try {
+                const wasmBytes = await fetch('build/sha256.wasm').then(r => r.arrayBuffer());
+                const wasmModule = await WebAssembly.instantiate(wasmBytes);
+                
+                // Get the memory and exported functions
+                memory = wasmModule.instance.exports.memory;
+                window.wasmExports = wasmModule.instance.exports;
+                
+                // Get the pointer to the dedicated chunk buffer in WASM memory
+                chunkBufferPtr = window.wasmExports.getChunkBufferPtr();
+                if (chunkBufferPtr === 0) {
+                    throw new Error("Failed to get chunk buffer pointer from WASM");
+                }
+                
+                console.log('Zig WASM module loaded successfully');
+                console.log('Available exports:', Object.keys(window.wasmExports));
+                console.log('Memory size:', memory.buffer.byteLength);
+                
+                // Test the hash function with some sample data
+                if (window.wasmExports.initSHA256 && window.wasmExports.update && window.wasmExports.getDigest) {
+                    window.wasmExports.initSHA256();
+                    const testData = new Uint8Array([97, 98, 99]); // "abc"
+                    const ptr = writeToMemory(testData);
+                    window.wasmExports.update(ptr, 3);
+                    window.wasmExports.digest();
+                    
+                    const hashPtr = window.wasmExports.getDigest();
+                    const hashBytes = new Uint8Array(memory.buffer, hashPtr, 32);
+                    const hexString = bytesToHex(hashBytes);
+                    console.log('Test hex string:', hexString);
+                    console.log('Expected: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+                    console.log('Test passed:', hexString === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+                }
+                return true;
+            } catch (error) {
+                console.error('Failed to load WASM module:', error);
+                return false;
+            }
+        }
+
+        // Helper function to convert Uint8Array to hex string
+        function bytesToHex(bytes) {
+            return Array.from(bytes)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        // Helper function to write data to WASM memory safely
+        function writeToMemory(data) {
+            const bytes = new Uint8Array(memory.buffer);
+            
+            // The offset is now the safe pointer provided by the WASM module
+            const offset = chunkBufferPtr;
+            
+            // Ensure we don't exceed memory bounds
+            if (offset + data.length > memory.buffer.byteLength) {
+                throw new Error(`Not enough memory space: need ${data.length} bytes, have ${memory.buffer.byteLength - offset}`);
+            }
+            
+            // Use set() for better performance
+            bytes.set(data, offset);
+            
+            return offset;
+        }
+
+        // Hash function using Zig WASM (using file.slice approach like 2.html)
+        async function hashFileWithZig(file) {
+            if (!window.wasmExports) {
+                throw new Error('WASM module not initialized');
+            }
+            
+            window.wasmExports.initSHA256();
+
+            const reader = file.stream().getReader();
+
+            return new Promise((resolve, reject) => {
+                function pump() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            window.wasmExports.digest();
+                            const hashPtr = window.wasmExports.getDigest();
+                            const hashBytes = new Uint8Array(memory.buffer, hashPtr, 32);
+                            resolve(bytesToHex(hashBytes));
+                            return;
+                        }
+
+                        // value is a Uint8Array chunk from the stream
+                        writeToMemory(value);
+                        window.wasmExports.update(value.length);
+                        
+                        pump();
+                    }).catch(reject);
+                }
+                pump();
+            });
+        }
+
+        async function onFileChange() {
+            const fileEl = document.getElementById('file1');
+            const resultEl = document.getElementById('resultingHashFile');
+            
+            if (!fileEl.files || fileEl.files.length === 0) {
+                return;
+            }
+
+            resultEl.innerText = 'Hashing...';
+            fileEl.disabled = true;
+
+            try {
+                const selectedFile = fileEl.files[0];
+                console.time('hashing');
+                
+                const hash = await hashFileWithZig(selectedFile);
+                
+                console.timeEnd('hashing');
+                console.log(selectedFile.name, hash);
+                resultEl.innerText = `${selectedFile.name}: ${hash}`;
+            } catch (e) {
+                console.error('Hashing error:', e);
+                resultEl.innerText = 'Error: ' + e.message;
+            } finally {
+                fileEl.disabled = false;
+            }
+        }
+
+        // Initialize WASM when page loads
+        window.addEventListener('load', async () => {
+            const success = await initWasm();
+            if (!success) {
+                document.getElementById('resultingHashFile').innerText = 
+                    'Error: Failed to load WASM module. Make sure to run ./build-zig.sh first.';
+            }
+        });
+    </script>
+</body>
+</html>

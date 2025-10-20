@@ -1,56 +1,54 @@
 const std = @import("std");
-const mem = std.mem;
 const crypto = std.crypto.hash.sha2;
-//const fmt = std.fmt;
 
-export fn initSHA256() []u8 {
-    const h = crypto.Sha256.init(.{});
-    return mem.toBytes(h);
+// Global state storage for streaming
+var sha256_state: crypto.Sha256 = undefined;
+var state_initialized = false;
+
+// A dedicated, static buffer for receiving file chunks from JavaScript
+const CHUNK_BUFFER_SIZE = 524288; // 512KB (optimized)
+var chunk_buffer: [CHUNK_BUFFER_SIZE]u8 = undefined;
+
+// Buffer for storing the final hash
+var digest_buffer: [32]u8 = undefined;
+
+export fn initSHA256() void {
+    sha256_state = crypto.Sha256.init(.{});
+    state_initialized = true;
 }
 
-export fn update(state: []u8, buffer: []u8) []u8 {
-    const parentH = crypto.Sha256.init(.{});
-    const h = mem.bytesToValue(@TypeOf(parentH), &state);
-    h.update(buffer)
-    return mem.toBytes(h);
+export fn update(data_len: usize) void {
+    if (!state_initialized) {
+        initSHA256();
+    }
+    
+    // Process data directly from the dedicated internal buffer
+    const data_slice = chunk_buffer[0..data_len];
+    sha256_state.update(data_slice);
 }
 
-
-export fn digest(state: []u8) [32]u8 {
-    const parentH = crypto.Sha256.init(.{});
-    const h = mem.bytesToValue(@TypeOf(parentH), &state);
-
-    var out: [32]u8 = undefined;
-    h.final(out[0..])
-    return out
+export fn digest() void {
+    if (!state_initialized) {
+        initSHA256();
+    }
+    sha256_state.final(digest_buffer[0..]);
+    // Reset state for next use
+    state_initialized = false;
 }
 
+export fn getDigest() [*]const u8 {
+    return &digest_buffer;
+}
 
-// pub fn main() !void {
+export fn getChunkBufferPtr() [*]u8 {
+    return &chunk_buffer;
+}
 
-//     const stdout = std.io.getStdOut().writer();
-//     var out: [32]u8 = undefined;
-
-//     var h = crypto.Sha256.init(.{});
-//     h.update("a");
-//     h.update("b");
-//     h.update("c");
-//     var m = mem.toBytes(h);
-//     try stdout.print("{s}", .{std.fmt.fmtSliceHexLower(m[0..])});
-//     try stdout.print("\n", .{});
-//     h.final(out[0..]);
-
-//     //try assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
-//     try stdout.print("{s}", .{std.fmt.fmtSliceHexLower(out[0..])});
-//     try stdout.print("\n", .{});
-
-//     var hh = crypto.Sha256.init(.{});
-//     var h2 = mem.bytesToValue(@TypeOf(hh), &m);
-//     const m2 = mem.toBytes(h2);
-//     var outm2 = std.fmt.fmtSliceHexLower(m2[0..]);
-//     try stdout.print("{s}", .{outm2});
-//     try stdout.print("\n", .{});
-//     h2.final(out[0..]);
-//     try stdout.print("{s}", .{std.fmt.fmtSliceHexLower(out[0..])});
-//     try stdout.print("\n", .{});
-// }
+// Keep exports alive for the linker
+comptime {
+    _ = initSHA256;
+    _ = update;
+    _ = digest;
+    _ = getDigest;
+    _ = getChunkBufferPtr;
+}
